@@ -28,7 +28,7 @@
       .settings { margin-top: 14px; }
       .settings summary { cursor: pointer; font-size: 12px; }
       .settings label { display: block; font-size: 12px; font-weight: 600; margin: 10px 0 4px; }
-      .settings input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; }
+      .settings input, .settings select { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; }
     </style>
   </head>
   <body>
@@ -55,11 +55,9 @@
       <div id="status"></div>
 
       <details class="settings">
-        <summary class="muted">Voice settings</summary>
-        <label for="elevenKey">ElevenLabs API key (restricted/capped)</label>
-        <input type="password" id="elevenKey" placeholder="stored only in this browser" />
-        <label for="voiceId">Voice id</label>
-        <input type="text" id="voiceId" />
+        <summary class="muted">Voice</summary>
+        <label for="voice">Narration voice (browser built-in)</label>
+        <select id="voice"></select>
       </details>
     </div>
 

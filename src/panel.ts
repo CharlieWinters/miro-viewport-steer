@@ -1,20 +1,19 @@
 // Panel iframe: the display's audio surface. It auto-opens when Claude wants to
-// talk; the user taps "Allow" once (the gesture that unlocks audio), then
-// narration plays. TTS is synthesized in the browser via ElevenLabs over https
-// (CORS is open) using a RESTRICTED, credit-capped key the user pastes here —
-// stored only in this browser, never in the repo. A pushed audioUrl, if present,
-// is played directly and takes precedence.
+// talk; the user taps "Allow" once (consent + unlock), then narration is spoken
+// using the browser's built-in Web Speech API (speechSynthesis) — no API key,
+// no network, no hosting. A pushed audioUrl, if present, is played instead.
 import { EV, type NarrateCommand, settings } from './shared'
 
 const board = (window as unknown as { miro: { board: any } }).miro.board
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
-let audioCtx: AudioContext | null = null
-let audioEnabled = false
+let enabled = false
 const audioEl = new Audio()
 const queue: NarrateCommand[] = []
 let playing = false
+
+const VOICE_KEY = 'vs.webVoice'
 
 function setStatus(msg: string) {
   $('status').textContent = msg
@@ -25,91 +24,98 @@ function showConsent(show: boolean) {
   $('player').style.display = show ? 'none' : 'block'
 }
 
+function chosenVoice(): SpeechSynthesisVoice | undefined {
+  const voices = speechSynthesis.getVoices()
+  const want = localStorage.getItem(VOICE_KEY)
+  return voices.find((v) => v.name === want) || voices.find((v) => v.lang.startsWith('en')) || voices[0]
+}
+
+function populateVoices() {
+  const sel = $<HTMLSelectElement>('voice')
+  const voices = speechSynthesis.getVoices()
+  if (!voices.length) return
+  const current = localStorage.getItem(VOICE_KEY)
+  sel.innerHTML = voices
+    .map((v) => `<option value="${v.name}"${v.name === current ? ' selected' : ''}>${v.name} (${v.lang})</option>`)
+    .join('')
+}
+
 function allow() {
-  audioCtx = audioCtx || new (window.AudioContext || (window as any).webkitAudioContext)()
-  void audioCtx.resume()
-  audioEnabled = true
+  enabled = true
+  // Unlock + prime speechSynthesis inside the user gesture.
+  try {
+    speechSynthesis.cancel()
+  } catch {
+    /* ignore */
+  }
   showConsent(false)
-  setStatus(settings.elevenKey ? 'Connected — narration will play here.' : 'Connected. Add an ElevenLabs key below for spoken audio.')
+  setStatus('Connected — narration will play here.')
   void pump()
 }
 
-/** Synthesize speech in the browser using the restricted key (https, CORS-open). */
-async function synth(text: string): Promise<string> {
-  const key = settings.elevenKey
-  if (!key) throw new Error('no key set')
-  const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${settings.voiceId}`, {
-    method: 'POST',
-    headers: { 'xi-api-key': key, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
-    body: JSON.stringify({
-      text,
-      model_id: 'eleven_turbo_v2_5',
-      voice_settings: { stability: 0.5, similarity_boost: 0.75 },
-    }),
-  })
-  if (!res.ok) throw new Error(`ElevenLabs ${res.status}: ${(await res.text()).slice(0, 150)}`)
-  return URL.createObjectURL(await res.blob())
-}
-
-async function pump() {
-  if (playing || !audioEnabled) return
+function pump() {
+  if (playing || !enabled) return
   const cmd = queue.shift()
   if (!cmd) return
   playing = true
   $('nowPlaying').textContent = cmd.text || '(audio)'
   $('transcript').textContent = ''
 
-  let objectUrl: string | null = null
   const done = () => {
-    if (objectUrl) URL.revokeObjectURL(objectUrl)
     playing = false
     $('nowPlaying').textContent = ''
-    void pump()
+    pump()
   }
 
-  try {
-    let src = cmd.audioUrl
-    if (!src) {
-      src = await synth(cmd.text) // browser-side TTS
-      objectUrl = src
-    }
-    audioEl.src = src
+  // A pushed clip URL takes precedence; otherwise speak with Web Speech.
+  if (cmd.audioUrl) {
+    audioEl.src = cmd.audioUrl
     audioEl.onended = done
     audioEl.onerror = () => {
-      setStatus('Audio failed to load — showing text')
       $('transcript').textContent = cmd.text
       setTimeout(done, 1200)
     }
-    await audioEl.play()
-    setStatus('Narrating…')
-  } catch (e) {
-    // Fallback: render text when there's no key / synth fails / playback blocked.
-    setStatus(`Text fallback (${(e as Error).message})`)
+    void audioEl.play().then(() => setStatus('Narrating…')).catch(done)
+    return
+  }
+
+  if (!('speechSynthesis' in window) || !cmd.text) {
     $('transcript').textContent = cmd.text
     setTimeout(done, Math.min(8000, 1500 + cmd.text.length * 45))
+    return
   }
+
+  const u = new SpeechSynthesisUtterance(cmd.text)
+  const v = chosenVoice()
+  if (v) u.voice = v
+  u.onend = done
+  u.onerror = done
+  setStatus('Narrating…')
+  speechSynthesis.speak(u)
 }
 
 function skip() {
+  speechSynthesis.cancel()
   audioEl.pause()
   audioEl.currentTime = 0
   playing = false
   $('nowPlaying').textContent = ''
-  void pump()
+  pump()
 }
 
 function togglePause() {
-  if (audioEl.paused) void audioEl.play()
-  else audioEl.pause()
+  if (speechSynthesis.speaking && !speechSynthesis.paused) speechSynthesis.pause()
+  else if (speechSynthesis.paused) speechSynthesis.resume()
+  else if (audioEl.src) audioEl.paused ? void audioEl.play() : audioEl.pause()
 }
 
-const seenNarrations = new Set<string>()
+const seen = new Set<string>()
 
 function handleNarration(cmd: NarrateCommand) {
-  if (cmd.id && seenNarrations.has(cmd.id)) return
-  if (cmd.id) seenNarrations.add(cmd.id)
+  if (cmd.id && seen.has(cmd.id)) return
+  if (cmd.id) seen.add(cmd.id)
   queue.push(cmd)
-  if (audioEnabled) void pump()
+  if (enabled) pump()
   else {
     showConsent(true)
     $('transcript').textContent = ''
@@ -127,17 +133,11 @@ function initUI() {
     settings.dontMoveMyView = dont.checked
   })
 
-  const key = $<HTMLInputElement>('elevenKey')
-  key.value = settings.elevenKey
-  key.addEventListener('change', () => {
-    settings.elevenKey = key.value.trim()
-  })
-
-  const voice = $<HTMLInputElement>('voiceId')
-  voice.value = settings.voiceId
-  voice.addEventListener('change', () => {
-    settings.voiceId = voice.value.trim()
-  })
+  const sel = $<HTMLSelectElement>('voice')
+  sel.addEventListener('change', () => localStorage.setItem(VOICE_KEY, sel.value))
+  populateVoices()
+  // Voices often load asynchronously.
+  speechSynthesis.onvoiceschanged = populateVoices
 
   showConsent(true)
 }
@@ -145,8 +145,8 @@ function initUI() {
 async function init() {
   initUI()
 
-  const narrateRelay = new BroadcastChannel('vs-narrate')
-  narrateRelay.onmessage = (e: MessageEvent) => handleNarration(e.data as NarrateCommand)
+  const relay = new BroadcastChannel('vs-narrate')
+  relay.onmessage = (e: MessageEvent) => handleNarration(e.data as NarrateCommand)
 
   // Best-effort direct subscription too (deduped by id).
   await board.events.on(EV.narrate, (cmd: NarrateCommand) => handleNarration(cmd))
