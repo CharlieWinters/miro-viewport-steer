@@ -1,7 +1,9 @@
 // Panel iframe: the display's audio surface. It auto-opens when Claude wants to
-// talk; the user taps "Allow" once (the gesture that unlocks audio), then clips
-// pushed from the Claude side play automatically. TTS happens on the Claude
-// side — the panel just plays the audioUrl it's handed.
+// talk; the user taps "Allow" once (the gesture that unlocks audio), then
+// narration plays. TTS is synthesized in the browser via ElevenLabs over https
+// (CORS is open) using a RESTRICTED, credit-capped key the user pastes here —
+// stored only in this browser, never in the repo. A pushed audioUrl, if present,
+// is played directly and takes precedence.
 import { EV, type NarrateCommand, settings } from './shared'
 
 const board = (window as unknown as { miro: { board: any } }).miro.board
@@ -18,20 +20,35 @@ function setStatus(msg: string) {
   $('status').textContent = msg
 }
 
-/** Show/hide the "Claude wants to talk to you → Allow" consent card. */
 function showConsent(show: boolean) {
   $('consent').style.display = show ? 'block' : 'none'
   $('player').style.display = show ? 'none' : 'block'
 }
 
 function allow() {
-  // Unlock autoplay inside the click handler.
   audioCtx = audioCtx || new (window.AudioContext || (window as any).webkitAudioContext)()
   void audioCtx.resume()
   audioEnabled = true
   showConsent(false)
-  setStatus('Connected — narration will play here.')
+  setStatus(settings.elevenKey ? 'Connected — narration will play here.' : 'Connected. Add an ElevenLabs key below for spoken audio.')
   void pump()
+}
+
+/** Synthesize speech in the browser using the restricted key (https, CORS-open). */
+async function synth(text: string): Promise<string> {
+  const key = settings.elevenKey
+  if (!key) throw new Error('no key set')
+  const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${settings.voiceId}`, {
+    method: 'POST',
+    headers: { 'xi-api-key': key, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+    body: JSON.stringify({
+      text,
+      model_id: 'eleven_turbo_v2_5',
+      voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+    }),
+  })
+  if (!res.ok) throw new Error(`ElevenLabs ${res.status}: ${(await res.text()).slice(0, 150)}`)
+  return URL.createObjectURL(await res.blob())
 }
 
 async function pump() {
@@ -40,32 +57,37 @@ async function pump() {
   if (!cmd) return
   playing = true
   $('nowPlaying').textContent = cmd.text || '(audio)'
+  $('transcript').textContent = ''
 
+  let objectUrl: string | null = null
   const done = () => {
+    if (objectUrl) URL.revokeObjectURL(objectUrl)
     playing = false
     $('nowPlaying').textContent = ''
     void pump()
   }
 
-  if (cmd.audioUrl) {
-    try {
-      audioEl.src = cmd.audioUrl
-      audioEl.onended = done
-      audioEl.onerror = () => {
-        setStatus('Audio failed to load — showing text')
-        $('transcript').textContent = cmd.text
-        setTimeout(done, 1500)
-      }
-      await audioEl.play()
-      setStatus('Narrating…')
-      return
-    } catch (e) {
-      setStatus('Playback blocked — showing text (' + (e as Error).message + ')')
+  try {
+    let src = cmd.audioUrl
+    if (!src) {
+      src = await synth(cmd.text) // browser-side TTS
+      objectUrl = src
     }
+    audioEl.src = src
+    audioEl.onended = done
+    audioEl.onerror = () => {
+      setStatus('Audio failed to load — showing text')
+      $('transcript').textContent = cmd.text
+      setTimeout(done, 1200)
+    }
+    await audioEl.play()
+    setStatus('Narrating…')
+  } catch (e) {
+    // Fallback: render text when there's no key / synth fails / playback blocked.
+    setStatus(`Text fallback (${(e as Error).message})`)
+    $('transcript').textContent = cmd.text
+    setTimeout(done, Math.min(8000, 1500 + cmd.text.length * 45))
   }
-  // No audio (or playback failed before load): show the text as a caption.
-  $('transcript').textContent = cmd.text
-  setTimeout(done, Math.min(8000, 1500 + cmd.text.length * 45))
 }
 
 function skip() {
@@ -84,13 +106,12 @@ function togglePause() {
 const seenNarrations = new Set<string>()
 
 function handleNarration(cmd: NarrateCommand) {
-  // Dedup: two headless iframes may relay the same command.
   if (cmd.id && seenNarrations.has(cmd.id)) return
   if (cmd.id) seenNarrations.add(cmd.id)
   queue.push(cmd)
   if (audioEnabled) void pump()
   else {
-    showConsent(true) // first message before consent → prompt the user
+    showConsent(true)
     $('transcript').textContent = ''
   }
 }
@@ -106,17 +127,28 @@ function initUI() {
     settings.dontMoveMyView = dont.checked
   })
 
+  const key = $<HTMLInputElement>('elevenKey')
+  key.value = settings.elevenKey
+  key.addEventListener('change', () => {
+    settings.elevenKey = key.value.trim()
+  })
+
+  const voice = $<HTMLInputElement>('voiceId')
+  voice.value = settings.voiceId
+  voice.addEventListener('change', () => {
+    settings.voiceId = voice.value.trim()
+  })
+
   showConsent(true)
 }
 
 async function init() {
   initUI()
 
-  // Narration arrives via the headless iframe's same-origin relay.
   const narrateRelay = new BroadcastChannel('vs-narrate')
   narrateRelay.onmessage = (e: MessageEvent) => handleNarration(e.data as NarrateCommand)
 
-  // Still subscribe directly too, as a best-effort path.
+  // Best-effort direct subscription too (deduped by id).
   await board.events.on(EV.narrate, (cmd: NarrateCommand) => handleNarration(cmd))
 
   setStatus('Waiting for Claude…')

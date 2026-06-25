@@ -25,6 +25,10 @@
       #status { font-size: 12px; color: #777; margin-top: 10px; }
       .controls { margin-top: 10px; display: flex; gap: 8px; }
       .row { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
+      .settings { margin-top: 14px; }
+      .settings summary { cursor: pointer; font-size: 12px; }
+      .settings label { display: block; font-size: 12px; font-weight: 600; margin: 10px 0 4px; }
+      .settings input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; }
     </style>
   </head>
   <body>
@@ -49,6 +53,14 @@
         <label for="dontMove" class="muted">Don't move my view</label>
       </div>
       <div id="status"></div>
+
+      <details class="settings">
+        <summary class="muted">Voice settings</summary>
+        <label for="elevenKey">ElevenLabs API key (restricted/capped)</label>
+        <input type="password" id="elevenKey" placeholder="stored only in this browser" />
+        <label for="voiceId">Voice id</label>
+        <input type="text" id="voiceId" />
+      </details>
     </div>
 
     <script type="module" src="/src/panel.ts"></script>
