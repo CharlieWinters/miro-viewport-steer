@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Viewport Steer</title>
+    <script src="https://miro.com/app/static/sdk/v2/miro.js"></script>
+    <style>
+      :root { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
+      body { margin: 0; padding: 16px; color: #1a1a1a; font-size: 14px; }
+      h1 { font-size: 16px; margin: 0 0 4px; }
+      .muted { color: #888; }
+      .card { border: 1px solid #e6e6e6; border-radius: 8px; padding: 12px; margin: 12px 0; }
+      .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+      label { display: block; font-weight: 600; margin: 10px 0 4px; }
+      input[type="text"], input[type="password"] {
+        width: 100%; box-sizing: border-box; padding: 6px 8px;
+        border: 1px solid #ccc; border-radius: 6px; font-size: 13px;
+      }
+      button {
+        padding: 6px 12px; border: 0; border-radius: 6px; cursor: pointer;
+        background: #4262ff; color: #fff; font-size: 13px;
+      }
+      button:disabled { background: #b8c2ff; cursor: default; }
+      button.secondary { background: #f0f0f0; color: #1a1a1a; }
+      #nowPlaying { font-style: italic; min-height: 18px; }
+      #transcript { white-space: pre-wrap; }
+      ul { margin: 6px 0 0; padding-left: 18px; }
+      #status { font-size: 12px; color: #555; }
+    </style>
+  </head>
+  <body>
+    <h1>Viewport Steer</h1>
+    <div class="muted">Remote control + narration for this board.</div>
+
+    <div class="card">
+      <div class="row">
+        <button id="enableAudio">Enable audio</button>
+        <button id="pause" class="secondary">Pause / resume</button>
+        <button id="skip" class="secondary">Skip</button>
+      </div>
+      <div id="nowPlaying"></div>
+      <div id="transcript"></div>
+      <div id="status"></div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <input type="checkbox" id="dontMove" />
+        <label for="dontMove" style="margin:0">Don't move my view</label>
+      </div>
+
+      <label for="userName">Display name</label>
+      <input type="text" id="userName" placeholder="optional — shown to the controller" />
+
+      <label for="voiceId">ElevenLabs voice id</label>
+      <input type="text" id="voiceId" />
+
+      <label for="elevenKey">ElevenLabs API key</label>
+      <input type="password" id="elevenKey" placeholder="stored only in this browser" />
+    </div>
+
+    <div class="card">
+      <label style="margin-top:0">Viewers broadcasting</label>
+      <ul id="peers"></ul>
+    </div>
+
+    <script type="module" src="/src/panel.ts"></script>
+  </body>
+</html>

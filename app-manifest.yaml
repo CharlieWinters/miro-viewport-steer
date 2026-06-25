@@ -1,0 +1,8 @@
+appName: Viewport Steer
+sdkVersion: SDK_V2
+# Local dev URL. Change to the GitHub Pages URL after deploy
+# (e.g. https://<user>.github.io/miro-viewport-steer/).
+sdkUri: "http://localhost:3000"
+scopes:
+  - boards:read
+  - boards:write
