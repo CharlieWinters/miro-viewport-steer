@@ -11,7 +11,6 @@ import {
   type NarrateCommand,
   settings,
   debounce,
-  boundingBox,
   intersects,
   sameViewport,
 } from './shared'
@@ -99,21 +98,31 @@ async function applySteer(cmd: SteerCommand): Promise<void> {
   // Targeted steer: ignore if it is not addressed to this client.
   if (cmd.targetUserId && cmd.targetUserId !== me.id) return
 
-  let dest: Rect | null = cmd.viewport ?? null
-  if (!dest && cmd.itemIds?.length) {
-    const rects: Rect[] = []
+  // Prefer viewport.zoomTo(items) when we have itemIds — it lets Miro handle
+  // framing natively, which works more reliably on interactive displays and
+  // non-standard aspect ratios than manual bounding-box math + viewport.set().
+  if (cmd.itemIds?.length) {
+    const items: any[] = []
     for (const id of cmd.itemIds) {
       try {
-        const it: any = await board.getById(id)
-        if (it && typeof it.x === 'number' && typeof it.width === 'number') {
-          rects.push({ x: it.x, y: it.y, width: it.width, height: it.height })
-        }
+        const it = await board.getById(id)
+        if (it) items.push(it)
       } catch {
         /* skip missing items */
       }
     }
-    dest = boundingBox(rects)
+    if (items.length) {
+      try {
+        await board.viewport.zoomTo(items)
+        return
+      } catch (e) {
+        console.warn('[vs] viewport.zoomTo failed, falling back to viewport.set', e)
+      }
+    }
   }
+
+  // Fallback: explicit viewport rect (or zoomTo failed).
+  const dest: Rect | null = cmd.viewport ?? null
   if (!dest) {
     console.warn('[vs] steer had no resolvable destination', cmd)
     return
