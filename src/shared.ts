@@ -39,9 +39,10 @@ export type SteerCommand = {
 
 export type NarrateCommand = {
   id: string
+  /** Text shown in the panel and used as the fallback when there's no audio. */
   text: string
-  /** ElevenLabs voice id; falls back to the receiver's configured voice. */
-  voiceId?: string
+  /** Pre-synthesized clip URL (TTS happens on the Claude side). Panel plays this. */
+  audioUrl?: string
   ts: number
 }
 

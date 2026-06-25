@@ -7,62 +7,48 @@
     <script src="https://miro.com/app/static/sdk/v2/miro.js"></script>
     <style>
       :root { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; }
-      body { margin: 0; padding: 16px; color: #1a1a1a; font-size: 14px; }
-      h1 { font-size: 16px; margin: 0 0 4px; }
+      body { margin: 0; padding: 20px; color: #1a1a1a; font-size: 14px; }
       .muted { color: #888; }
-      .card { border: 1px solid #e6e6e6; border-radius: 8px; padding: 12px; margin: 12px 0; }
-      .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
-      label { display: block; font-weight: 600; margin: 10px 0 4px; }
-      input[type="text"], input[type="password"] {
-        width: 100%; box-sizing: border-box; padding: 6px 8px;
-        border: 1px solid #ccc; border-radius: 6px; font-size: 13px;
-      }
+      .card { border: 1px solid #e6e6e6; border-radius: 10px; padding: 16px; margin: 12px 0; }
       button {
-        padding: 6px 12px; border: 0; border-radius: 6px; cursor: pointer;
-        background: #4262ff; color: #fff; font-size: 13px;
+        padding: 10px 18px; border: 0; border-radius: 8px; cursor: pointer;
+        background: #4262ff; color: #fff; font-size: 15px; font-weight: 600;
       }
-      button:disabled { background: #b8c2ff; cursor: default; }
-      button.secondary { background: #f0f0f0; color: #1a1a1a; }
-      #nowPlaying { font-style: italic; min-height: 18px; }
-      #transcript { white-space: pre-wrap; }
-      ul { margin: 6px 0 0; padding-left: 18px; }
-      #status { font-size: 12px; color: #555; }
+      button.secondary { background: #f0f0f0; color: #1a1a1a; font-weight: 400; font-size: 13px; padding: 6px 12px; }
+      #consent { text-align: center; padding: 28px 16px; }
+      #consent h1 { font-size: 18px; margin: 12px 0 6px; }
+      #consent p { color: #666; margin: 0 0 18px; }
+      .avatar { width: 48px; height: 48px; border-radius: 50%; background: #4262ff; color: #fff;
+        display: inline-flex; align-items: center; justify-content: center; font-size: 22px; }
+      #nowPlaying { font-style: italic; min-height: 20px; margin-bottom: 8px; }
+      #transcript { white-space: pre-wrap; color: #333; }
+      #status { font-size: 12px; color: #777; margin-top: 10px; }
+      .controls { margin-top: 10px; display: flex; gap: 8px; }
+      .row { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
     </style>
   </head>
   <body>
-    <h1>Viewport Steer</h1>
-    <div class="muted">Remote control + narration for this board.</div>
+    <!-- Consent gate: shown until the user allows audio (the unlock gesture). -->
+    <div id="consent" class="card">
+      <div class="avatar">C</div>
+      <h1>Claude wants to talk to you</h1>
+      <p>Allow audio so Claude can narrate and guide your view.</p>
+      <button id="allow">Allow</button>
+    </div>
 
-    <div class="card">
-      <div class="row">
-        <button id="enableAudio">Enable audio</button>
+    <!-- Player: shown once allowed. -->
+    <div id="player" class="card" style="display:none">
+      <div id="nowPlaying"></div>
+      <div id="transcript"></div>
+      <div class="controls">
         <button id="pause" class="secondary">Pause / resume</button>
         <button id="skip" class="secondary">Skip</button>
       </div>
-      <div id="nowPlaying"></div>
-      <div id="transcript"></div>
-      <div id="status"></div>
-    </div>
-
-    <div class="card">
       <div class="row">
         <input type="checkbox" id="dontMove" />
-        <label for="dontMove" style="margin:0">Don't move my view</label>
+        <label for="dontMove" class="muted">Don't move my view</label>
       </div>
-
-      <label for="userName">Display name</label>
-      <input type="text" id="userName" placeholder="optional — shown to the controller" />
-
-      <label for="voiceId">ElevenLabs voice id</label>
-      <input type="text" id="voiceId" />
-
-      <label for="elevenKey">ElevenLabs API key</label>
-      <input type="password" id="elevenKey" placeholder="stored only in this browser" />
-    </div>
-
-    <div class="card">
-      <label style="margin-top:0">Viewers broadcasting</label>
-      <ul id="peers"></ul>
+      <div id="status"></div>
     </div>
 
     <script type="module" src="/src/panel.ts"></script>

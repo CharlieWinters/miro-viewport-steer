@@ -1,14 +1,12 @@
-// Panel iframe: the app's UI surface and the audio surface for narration.
-// Audio must originate here because the headless iframe has no user gesture to
-// unlock autoplay. The operator taps "Enable audio" once per session.
-import { EV, type NarrateCommand, type BoardContext, settings } from './shared'
-import { synthesize, TtsError } from './tts'
+// Panel iframe: the display's audio surface. It auto-opens when Claude wants to
+// talk; the user taps "Allow" once (the gesture that unlocks audio), then clips
+// pushed from the Claude side play automatically. TTS happens on the Claude
+// side — the panel just plays the audioUrl it's handed.
+import { EV, type NarrateCommand, settings } from './shared'
 
 const board = (window as unknown as { miro: { board: any } }).miro.board
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
-
-// --- Audio playback (queue + pause/skip) ----------------------------------
 
 let audioCtx: AudioContext | null = null
 let audioEnabled = false
@@ -20,44 +18,54 @@ function setStatus(msg: string) {
   $('status').textContent = msg
 }
 
-function enableAudio() {
-  // Resume an AudioContext inside the click handler to satisfy autoplay policy.
+/** Show/hide the "Claude wants to talk to you → Allow" consent card. */
+function showConsent(show: boolean) {
+  $('consent').style.display = show ? 'block' : 'none'
+  $('player').style.display = show ? 'none' : 'block'
+}
+
+function allow() {
+  // Unlock autoplay inside the click handler.
   audioCtx = audioCtx || new (window.AudioContext || (window as any).webkitAudioContext)()
   void audioCtx.resume()
   audioEnabled = true
-  $('enableAudio').setAttribute('disabled', 'true')
-  $('enableAudio').textContent = 'Audio enabled ✓'
-  setStatus('Audio enabled — narration will play here.')
+  showConsent(false)
+  setStatus('Connected — narration will play here.')
+  void pump()
 }
 
 async function pump() {
-  if (playing) return
+  if (playing || !audioEnabled) return
   const cmd = queue.shift()
   if (!cmd) return
   playing = true
-  $('nowPlaying').textContent = cmd.text
-  $('transcript').textContent = ''
+  $('nowPlaying').textContent = cmd.text || '(audio)'
 
-  try {
-    if (!audioEnabled) throw new TtsError('Audio not enabled — showing text')
-    const url = await synthesize(cmd.text, cmd.voiceId)
-    audioEl.src = url
-    audioEl.onended = () => {
-      URL.revokeObjectURL(url)
-      playing = false
-      $('nowPlaying').textContent = ''
-      void pump()
-    }
-    await audioEl.play()
-    setStatus('Narrating…')
-  } catch (e) {
-    // Story 04 fallback: render the text when TTS/audio is unavailable.
-    const reason = e instanceof TtsError ? e.message : (e as Error).message
-    setStatus(`Text fallback (${reason})`)
-    $('transcript').textContent = cmd.text
+  const done = () => {
     playing = false
+    $('nowPlaying').textContent = ''
     void pump()
   }
+
+  if (cmd.audioUrl) {
+    try {
+      audioEl.src = cmd.audioUrl
+      audioEl.onended = done
+      audioEl.onerror = () => {
+        setStatus('Audio failed to load — showing text')
+        $('transcript').textContent = cmd.text
+        setTimeout(done, 1500)
+      }
+      await audioEl.play()
+      setStatus('Narrating…')
+      return
+    } catch (e) {
+      setStatus('Playback blocked — showing text (' + (e as Error).message + ')')
+    }
+  }
+  // No audio (or playback failed before load): show the text as a caption.
+  $('transcript').textContent = cmd.text
+  setTimeout(done, Math.min(8000, 1500 + cmd.text.length * 45))
 }
 
 function skip() {
@@ -73,26 +81,22 @@ function togglePause() {
   else audioEl.pause()
 }
 
-// --- Peer context display (Story 01/02 visibility) -------------------------
+const seenNarrations = new Set<string>()
 
-const peers = new Map<string, BoardContext>()
-
-function renderPeers() {
-  const rows = [...peers.values()]
-    .sort((a, b) => b.ts - a.ts)
-    .map(
-      (p) =>
-        `<li><b>${p.name || p.userId.slice(0, 6)}</b> — ${p.visibleIds.length} items in view` +
-        `${p.selectionIds.length ? `, ${p.selectionIds.length} selected` : ''}</li>`
-    )
-    .join('')
-  $('peers').innerHTML = rows || '<li class="muted">No viewers broadcasting yet.</li>'
+function handleNarration(cmd: NarrateCommand) {
+  // Dedup: two headless iframes may relay the same command.
+  if (cmd.id && seenNarrations.has(cmd.id)) return
+  if (cmd.id) seenNarrations.add(cmd.id)
+  queue.push(cmd)
+  if (audioEnabled) void pump()
+  else {
+    showConsent(true) // first message before consent → prompt the user
+    $('transcript').textContent = ''
+  }
 }
 
-// --- Wire up UI ------------------------------------------------------------
-
 function initUI() {
-  $('enableAudio').addEventListener('click', enableAudio)
+  $('allow').addEventListener('click', allow)
   $('skip').addEventListener('click', skip)
   $('pause').addEventListener('click', togglePause)
 
@@ -102,51 +106,20 @@ function initUI() {
     settings.dontMoveMyView = dont.checked
   })
 
-  const voice = $<HTMLInputElement>('voiceId')
-  voice.value = settings.voiceId
-  voice.addEventListener('change', () => {
-    settings.voiceId = voice.value.trim()
-  })
-
-  const key = $<HTMLInputElement>('elevenKey')
-  key.value = settings.elevenKey
-  key.addEventListener('change', () => {
-    settings.elevenKey = key.value.trim()
-  })
-
-  const name = $<HTMLInputElement>('userName')
-  name.value = settings.userName
-  name.addEventListener('change', () => {
-    settings.userName = name.value.trim()
-  })
-
-  renderPeers()
-}
-
-const seenNarrations = new Set<string>()
-
-function handleNarration(cmd: NarrateCommand) {
-  // Dedup: two headless iframes may relay the same command.
-  if (cmd.id && seenNarrations.has(cmd.id)) return
-  if (cmd.id) seenNarrations.add(cmd.id)
-  queue.push(cmd)
-  void pump()
+  showConsent(true)
 }
 
 async function init() {
   initUI()
 
-  // Narration arrives via the headless iframe's same-origin relay (the panel
-  // doesn't reliably receive the cross-user realtime broadcast directly).
+  // Narration arrives via the headless iframe's same-origin relay.
   const narrateRelay = new BroadcastChannel('vs-narrate')
   narrateRelay.onmessage = (e: MessageEvent) => handleNarration(e.data as NarrateCommand)
 
-  await board.events.on(EV.boardContext, (ctx: BoardContext) => {
-    peers.set(ctx.userId, ctx)
-    renderPeers()
-  })
+  // Still subscribe directly too, as a best-effort path.
+  await board.events.on(EV.narrate, (cmd: NarrateCommand) => handleNarration(cmd))
 
-  setStatus('Ready. Tap "Enable audio" to allow narration playback.')
+  setStatus('Waiting for Claude…')
 }
 
 void init()

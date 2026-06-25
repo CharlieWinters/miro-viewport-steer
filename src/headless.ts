@@ -154,6 +154,8 @@ async function init(): Promise<void> {
   // surface) gets narrate commands cross-user unreliably, so relay them to it
   // over a same-origin BroadcastChannel. The panel dedups by command id.
   await board.events.on(EV.narrate, (cmd: NarrateCommand) => {
+    // Auto-open the panel so the user sees "Claude wants to talk to you".
+    void board.ui.openPanel({ url: 'app.html' }).catch(() => {})
     try {
       narrateRelay.postMessage(cmd)
     } catch (e) {
@@ -180,7 +182,8 @@ type TourStep = {
   itemIds?: string[]
   viewport?: Rect
   text?: string
-  voiceId?: string
+  /** Pre-synthesized clip URL (from scripts/tts.mjs). */
+  audioUrl?: string
   animationDurationInMs?: number
   dwellMs?: number
 }
@@ -195,9 +198,9 @@ function sendSteer(cmd: Omit<SteerCommand, 'ts'>): Promise<void> {
   return board.events.broadcast(EV.steer, payload)
 }
 
-function sendNarrate(text: string, voiceId?: string): Promise<void> {
+function sendNarrate(text: string, audioUrl?: string): Promise<void> {
   const payload: NarrateCommand = { id: crypto.randomUUID(), text, ts: Date.now() }
-  if (voiceId !== undefined) payload.voiceId = voiceId
+  if (audioUrl !== undefined) payload.audioUrl = audioUrl
   return board.events.broadcast(EV.narrate, payload)
 }
 
@@ -208,8 +211,8 @@ function exposeControllerApi() {
     contexts: () => [...contexts.values()].sort((a, b) => b.ts - a.ts),
     /** Pan/zoom one viewer (or all, if targetUserId omitted) to items or a rect. */
     steer: (cmd: Omit<SteerCommand, 'ts'>) => sendSteer(cmd),
-    /** Speak text on clients showing the panel (the display). */
-    narrate: (text: string, voiceId?: string) => sendNarrate(text, voiceId),
+    /** Speak on the display panel. Pass a pre-synthesized audioUrl; text is the fallback/caption. */
+    narrate: (text: string, audioUrl?: string) => sendNarrate(text, audioUrl),
     /**
      * Run a guided tour: for each stop, move the view (if given), narrate (if
      * given), then wait dwellMs before the next. Audio length varies, so set
@@ -224,7 +227,7 @@ function exposeControllerApi() {
             animationDurationInMs: s.animationDurationInMs ?? DEFAULT_STEER_ANIMATION_MS,
           })
         }
-        if (s.text) await sendNarrate(s.text, s.voiceId)
+        if (s.text || s.audioUrl) await sendNarrate(s.text ?? '', s.audioUrl)
         await new Promise((r) => setTimeout(r, s.dwellMs ?? 5000))
       }
       return 'tour complete'
