@@ -1,8 +1,8 @@
 appName: Viewport Steer
 sdkVersion: SDK_V2
-# Local dev URL. Change to the GitHub Pages URL after deploy
-# (e.g. https://<user>.github.io/miro-viewport-steer/).
-sdkUri: "http://localhost:3000"
+# Deployed on GitHub Pages. For local dev, temporarily set this back to
+# http://localhost:3000 (and in the Developer Dashboard).
+sdkUri: "https://charliewinters.github.io/miro-viewport-steer/"
 scopes:
   - boards:read
   - boards:write
